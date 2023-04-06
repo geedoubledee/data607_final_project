@@ -1,0 +1,42 @@
+---
+title: "Data 607 - Final Project - Proposal"
+author: "Glen Dale Davis"
+date: "2023-04-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## One Paragraph That:
+
+### Includes Your Motivation:
+
+*Proposal describes your motivation for performing this analysis.*
+
+
+
+You're a birder, and you have a couple of goals. You would like to see as many new birds as possible in the shortest amount of time, and you would particularly love to see birds in states where they are recognized as the state bird. If you have seen a bird before getting to a state where it is recognized as the state bird, you don't care about seeing that bird again. But if you can choose between seeing a new bird in a state where it's not the state bird and a new bird in a state where it is the state bird, you always take the latter opportunity. 
+
+So choose a starting state and set your initial travel budget. It costs $1 to visit any adjacent state and takes a proportion of days to get there equal to the inverse probability of seeing the bird you end up seeing there. Retracing your steps is fine, but you always have to move. So let's see how many new birds you can see before you run out of money. If you can't see a new bird by visiting any of the surrounding states, those states will be treated as equally long parts of your trip.
+
+### Includes Your Data Sources:
+
+*Proposal describes likely data sources.*
+
+[Bird Buddy](https://live.mybirdbuddy.com/)
+
+[List of US State Birds](https://en.wikipedia.org/wiki/List_of_U.S._state_birds)
+
+[Contiguous USA Undirected Graph](https://mathworld.wolfram.com/ContiguousUSAGraph.html)
+
+## An Approval Meeting Will Follow Where:
+
+*You'll have to describe:*
+
+* The reason (benefit) for doing this work and/or question you’re seeking to answer
+
+* Where you’ll source the data
+
+* The overall flow
