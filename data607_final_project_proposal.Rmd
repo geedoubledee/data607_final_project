@@ -15,11 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 *Proposal describes your motivation for performing this analysis.*
 
-
-
-You're a birder, and you have a couple of goals. You would like to see as many new birds as possible in the shortest amount of time, and you would particularly love to see birds in states where they are recognized as the state bird. If you have seen a bird before getting to a state where it is recognized as the state bird, you don't care about seeing that bird again. But if you can choose between seeing a new bird in a state where it's not the state bird and a new bird in a state where it is the state bird, you always take the latter opportunity. 
-
-So choose a starting state and set your initial travel budget. It costs $1 to visit any adjacent state and takes a proportion of days to get there equal to the inverse probability of seeing the bird you end up seeing there. Retracing your steps is fine, but you always have to move. So let's see how many new birds you can see before you run out of money. If you can't see a new bird by visiting any of the surrounding states, those states will be treated as equally long parts of your trip.
+We would like to help a birdwatcher in New York plan a plane trip across the entire United States (US) that prioritizes seeing a new bird in every state he visits. If he has the opportunity to see a new bird in a state where that bird is the state bird, that always takes precedence. What is the lowest weighted path he can take if each state is a vertex he can visit only once, and the edges between the state he is in and any state he hasn't visited yet are assigned weights equal to the inverse probability of seeing a new bird by traveling there? [Bird Buddy](https://live.mybirdbuddy.com/) sells fancy bird feeders equipped with cameras that take photos of birds as they feed and identify the species for people. They release anonymized geospatial data monthly that includes the time each photo was taken and the species that was captured on camera. We have aggregated this data and mapped the longitude and latitude coordinates to states, and we have calculated the probability of seeing species in each state based on the number of times that species has been seen in that state since October 2022, the first month Bird Buddy released data for. We have removed geospatial data that falls outside the US and the District of Columbia (DC), and we have removed species with probabilities of being seen of less than 0.001 from our analysis. We have extracted the [list of US/DC state birds from Wikipedia](https://en.wikipedia.org/wiki/List_of_U.S._state_birds). Now we are ready to find the Hamiltonian path that solves our problem. We will have to keep track of which birds we've seen as we construct the path so that we update the edge weights after each step. For the sake of simplicity, the edge weights will be based on a single bird for each so-far unvisited state: the most likely bird to be seen in that state, excepting any already seen birds from previously visited states. We might extend our analysis by exploring the results of other kinds of pathing and/or limitations on travel, i.e. visiting only the contiguous 48 states by car instead of plane via a Euler path, which differs from a Hamiltonian path in that every edge is used with no repeats instead of every vertex being visited only once. 
 
 ### Includes Your Data Sources:
 
@@ -28,8 +24,6 @@ So choose a starting state and set your initial travel budget. It costs $1 to vi
 [Bird Buddy](https://live.mybirdbuddy.com/)
 
 [List of US State Birds](https://en.wikipedia.org/wiki/List_of_U.S._state_birds)
-
-[Contiguous USA Undirected Graph](https://mathworld.wolfram.com/ContiguousUSAGraph.html)
 
 ## An Approval Meeting Will Follow Where:
 

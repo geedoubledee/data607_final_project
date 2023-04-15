@@ -1,0 +1,112 @@
+---
+title: "Data 607 - Final Project - Research"
+author: "Glen Dale Davis"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages:
+
+```{r packages}
+library(tidyverse)
+library(sf)
+library(spData)
+library(rnaturalearth)
+library(xml2)
+```
+## Longitude/Latitude to State:
+
+Adapted from [here](https://stackoverflow.com/questions/8751497/latitude-longitude-coordinates-to-state-code-in-r).
+
+```{r lon_lat_to_state}
+lon_lat_to_state <- function(pointsDF,
+                            states = spData::us_states,
+                            name_col = "NAME") {
+    pts <- st_as_sf(pointsDF, coords = 1:2, crs = 4326)
+    states <- st_transform(states, crs = 3857)
+    pts <- st_transform(pts, crs = 3857)
+    state_names <- states[[name_col]]
+    ii <- as.integer(st_intersects(pts, states))
+    state_names[ii]
+}
+us_states_ne <- ne_states(country = "United States of America",
+                          returnclass = "sf")
+
+```
+
+## Bird Buddy Data:
+
+```{r data1}
+read_vFiles <- function(v){
+    dfx <- read.csv(file=v, header=TRUE)
+}
+completed <- readLines("completed.txt")
+if (length(completed) == 0){
+    vFiles <- list.files(pattern = "csv$")
+    bird_buddy_df <- as.data.frame(matrix(nrow = 0, ncol = 5))
+    cols <- c("lat", "lon", "timestamp", "species")
+    reorder <- c("lon", "lat", "timestamp", "species")
+    for (i in 1:length(vFiles)){
+        dfx <- read_vFiles(vFiles[i])
+        colnames(dfx) <- cols
+        dfx <- dfx[reorder]
+        state <- lon_lat_to_state(dfx,
+                                  states = us_states_ne,
+                                  name_col = "name")
+        dfx <- cbind(dfx, state)
+        bird_buddy_df <- rbind(bird_buddy_df, dfx)
+    }
+    write.csv(bird_buddy_df, "bird_buddy_df.csv", row.names=FALSE)
+}
+
+if (!"bird_buddy_df.csv" %in% completed){
+    total_by_state <- bird_buddy_df %>%
+        filter(!is.na(state)) %>%
+        group_by(state) %>%
+        summarize(total = n()) %>%
+        arrange(desc(total))
+    write.csv(total_by_state, "total_by_state.csv",
+              row.names=FALSE)
+    bird_buddy_df_minimal <- bird_buddy_df %>%
+        filter(!is.na(state)) %>%
+        group_by(state, species) %>%
+        summarize(total = n()) %>%
+        arrange(state, desc(total))
+    write.csv(bird_buddy_df_minimal, "bird_buddy_df_minimal.csv",
+              row.names=FALSE)
+    bird_buddy_df_analysis <- total_by_state %>%
+    left_join(bird_buddy_df_minimal, by=join_by(state),
+              relationship="one-to-many")
+    cols <- c("state", "state_total", "species", "species_total")
+    colnames(bird_buddy_df_analysis) <- cols
+    bird_buddy_df_analysis <- bird_buddy_df_analysis %>%
+        mutate(p = round(species_total / state_total, 4)) %>%
+        filter(p >= 0.001) %>%
+        arrange(species, desc(p))
+    write.csv(bird_buddy_df_analysis, "bird_buddy_df_analysis.csv",
+              row.names=FALSE)
+}else{
+    total_by_state <- read.csv("total_by_state.csv")
+    bird_buddy_df_minimal <- read.csv("bird_buddy_df_minimal.csv")
+    bird_buddy_df_analysis <- read.csv("bird_buddy_df_analysis.csv")
+}
+
+```
+
+## State Birds Data:
+
+```{r data2}
+my_url <- "https://en.wikipedia.org/wiki/List_of_U.S._state_birds"
+dat <- rvest::read_html(my_url)
+tbls <- rvest::html_nodes(dat, "table")
+state_birds <- as.data.frame(rvest::html_table(tbls)[[1]])
+state_birds <- state_birds[1:2]
+cols <- c("state", "bird")
+colnames(state_birds) <- cols
+state_birds <- state_birds %>%
+    filter(state %in% unique(us_states_ne$name))
+```
