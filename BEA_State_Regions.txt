@@ -1,0 +1,8 @@
+New England: Connecticut, Maine, Massachusetts, New Hampshire, Rhode Island, and Vermont
+Mideast: Delaware, District of Columbia, Maryland, New Jersey, New York, and Pennsylvania
+Great Lakes: Illinois, Indiana, Michigan, Ohio, and Wisconsin
+Plains: Iowa, Kansas, Minnesota, Missouri, Nebraska, North Dakota, and South Dakota
+Southeast: Alabama, Arkansas, Florida, Georgia, Kentucky, Louisiana, Mississippi, North Carolina, South Carolina, Tennessee, Virginia, and West Virginia
+Southwest: Arizona, New Mexico, Oklahoma, and Texas
+Rocky Mountain: Colorado, Idaho, Montana, Utah, and Wyoming
+Far West: Alaska, California, Hawaii, Nevada, Oregon, and Washington
