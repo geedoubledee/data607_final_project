@@ -66,7 +66,8 @@ We aggregate the Bird Buddy data for all months from October 2022, the first mon
 read_vFiles <- function(v){
     dfx <- read.csv(file=v, header=TRUE)
 }
-completed <- readLines("completed.txt")
+my_url0 <- "https://raw.githubusercontent.com/geedoubledee/data607_final_project/main/completed.txt"
+completed <- readLines(my_url0)
 if (length(completed) == 0){
     vFiles <- list.files(pattern = "csv$")
     bird_buddy_df <- as.data.frame(matrix(nrow = 0, ncol = 5))

@@ -417,7 +417,8 @@ removed geospatial data that falls outside the US and DC.</p>
 <pre class="r"><code>read_vFiles &lt;- function(v){
     dfx &lt;- read.csv(file=v, header=TRUE)
 }
-completed &lt;- readLines(&quot;completed.txt&quot;)
+my_url0 &lt;- &quot;https://raw.githubusercontent.com/geedoubledee/data607_final_project/main/completed.txt&quot;
+completed &lt;- readLines(my_url0)
 if (length(completed) == 0){
     vFiles &lt;- list.files(pattern = &quot;csv$&quot;)
     bird_buddy_df &lt;- as.data.frame(matrix(nrow = 0, ncol = 5))
