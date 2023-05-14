@@ -9,18 +9,38 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Packages:
+## Load the Required Packages:
 
-```{r packages}
+Before we begin, we load the packages required for data analysis, we set a seed so that the visualizations of our graphs will be consistent, and we establish a palette.
+
+```{r packages, warning = FALSE, message = FALSE}
 library(tidyverse)
 library(sf)
 library(spData)
 library(rnaturalearth)
 library(xml2)
-```
-## Longitude/Latitude to State:
+library(igraph)
+library(knitr)
+library(markovchain)
 
-Adapted from [here](https://stackoverflow.com/questions/8751497/latitude-longitude-coordinates-to-state-code-in-r).
+```
+
+```{r set_seed_and_palette}
+set.seed(87)
+palette <- c("#1b4079","#a71d31","#fbfaef","#ea8c55","#08a4bd")
+
+```
+
+## Introduction:
+
+[Bird Buddy](https://live.mybirdbuddy.com/) is a company that sells fancy bird feeders equipped with cameras. The feeders take photos of birds as they feed and identify the species automatically. Bird Buddy releases anonymized geospatial data monthly that includes the time each photo was taken and the species that was captured on camera. Using this data, we will be determining the best bird-watching paths for each region of the United States. The priorities that will dictate the best paths are:
+
+1. seeing birds with the highest probabilities of being seen in a state, excluding any birds we have already seen
+2. seeing birds in states where they are the state bird
+
+## Transform Longitude/Latitude Coordinates to State Data:
+
+Since we are working with geospatial data, we first define a function for transforming longitude and latitude coordinates to the matching state in the United States (US) and the District of Columbia (DC). We adapted the function from [here](https://stackoverflow.com/questions/8751497/latitude-longitude-coordinates-to-state-code-in-r).
 
 ```{r lon_lat_to_state}
 lon_lat_to_state <- function(pointsDF,
@@ -38,9 +58,11 @@ us_states_ne <- ne_states(country = "United States of America",
 
 ```
 
-## Bird Buddy Data:
+## Aggregate Bird Sighting Data:
 
-```{r data1}
+We aggregate the Bird Buddy data for all months from October 2022, the first month for which Bird Buddy released data, to February 2023. We then map the longitude and latitude coordinates to states. We have removed geospatial data that falls outside the US and DC.
+
+```{r data0}
 read_vFiles <- function(v){
     dfx <- read.csv(file=v, header=TRUE)
 }
@@ -63,14 +85,17 @@ if (length(completed) == 0){
     write.csv(bird_buddy_df, "bird_buddy_df.csv", row.names=FALSE)
 }
 
+```
+
+Next, we calculate the probability of seeing particular species in each state based on the number of times that species has been seen in that state divided by that state's total count of bird sightings. We have removed species with probabilities of being seen of less than 0.001 from our analysis.
+
+```{r data1}
 if (!"bird_buddy_df.csv" %in% completed){
     total_by_state <- bird_buddy_df %>%
         filter(!is.na(state)) %>%
         group_by(state) %>%
         summarize(total = n()) %>%
         arrange(desc(total))
-    write.csv(total_by_state, "total_by_state.csv",
-              row.names=FALSE)
     bird_buddy_df_minimal <- bird_buddy_df %>%
         filter(!is.na(state)) %>%
         group_by(state, species) %>%
@@ -86,22 +111,44 @@ if (!"bird_buddy_df.csv" %in% completed){
     bird_buddy_df_analysis <- bird_buddy_df_analysis %>%
         mutate(p = round(species_total / state_total, 4)) %>%
         filter(p >= 0.001) %>%
-        arrange(species, desc(p))
+        arrange(state, desc(p))
     write.csv(bird_buddy_df_analysis, "bird_buddy_df_analysis.csv",
               row.names=FALSE)
 }else{
-    total_by_state <- read.csv("total_by_state.csv")
-    bird_buddy_df_minimal <- read.csv("bird_buddy_df_minimal.csv")
-    bird_buddy_df_analysis <- read.csv("bird_buddy_df_analysis.csv")
+    my_url1 <- "https://raw.githubusercontent.com/geedoubledee/data607_final_project/main/bird_buddy_df_minimal.csv"
+    my_url2 <- "https://raw.githubusercontent.com/geedoubledee/data607_final_project/main/bird_buddy_df_analysis.csv"
+    bird_buddy_df_minimal <- read.csv(my_url1)
+    bird_buddy_df_analysis <- read.csv(my_url2)
 }
 
 ```
 
-## State Birds Data:
+## Aggregate State Data:
+
+Now that our bird sighting data is ready, we gather additional information regarding the states:
+
+### Their Two-Letter Abbreviations:
+
+The two-letter state abbreviations were included with the geospatial data parsing packages. 
 
 ```{r data2}
-my_url <- "https://en.wikipedia.org/wiki/List_of_U.S._state_birds"
-dat <- rvest::read_html(my_url)
+cols <- c("name", "postal")
+state_abbrev <- as.data.frame(us_states_ne[, colnames(us_states_ne) %in% cols])
+rownames(state_abbrev) <- NULL
+remove <- "geometry"
+state_abbrev <- state_abbrev[, !colnames(state_abbrev) %in% remove]
+cols <- c("state", "abbrev")
+colnames(state_abbrev) <- cols
+
+```
+
+### Their State Birds:
+
+The state birds were listed on [Wikipedia](https://en.wikipedia.org/wiki/List_of_U.S._state_birds).
+
+```{r data3}
+my_url3 <- "https://en.wikipedia.org/wiki/List_of_U.S._state_birds"
+dat <- rvest::read_html(my_url3)
 tbls <- rvest::html_nodes(dat, "table")
 state_birds <- as.data.frame(rvest::html_table(tbls)[[1]])
 state_birds <- state_birds[1:2]
@@ -109,4 +156,408 @@ cols <- c("state", "bird")
 colnames(state_birds) <- cols
 state_birds <- state_birds %>%
     filter(state %in% unique(us_states_ne$name))
+state_birds[39, 2] <- NA #fix PA
+state_birds$bird <- trimws(tolower(str_replace_all(state_birds$bird, "\\(.*", "")))
+
 ```
+
+### Their Regions:
+
+The [Bureau of Economic Analysis](https://apps.bea.gov/regional/docs/msalist.cfm?mlist=2) divides the US and DC into eight regions that are useful for our analysis.
+
+```{r data4}
+my_url4 <- "https://raw.githubusercontent.com/geedoubledee/data607_final_project/main/BEA_State_Regions.txt"
+state_regions <- as.data.frame(readLines(my_url4))
+colnames(state_regions) <- "region_state"
+state_regions <- state_regions %>%
+    separate_wider_delim(region_state, delim = ":", names = c("region", "state"))
+state_regions$state <- str_replace_all(state_regions$state, " and", "")
+state_regions <- state_regions %>%
+    separate_longer_delim(state, delim = ",") %>%
+    mutate(across(where(is.character), str_trim))
+reorder <- c("state", "region")
+state_regions <- state_regions[, reorder]
+
+```
+
+We then combine this additional state data into one data frame. 
+
+```{r data5}
+state_df <- state_abbrev %>%
+    left_join(state_regions, by = join_by(state)) %>%
+    left_join(state_birds, by = join_by(state)) %>%
+    arrange(state)
+rm(state_abbrev)
+rm(state_regions)
+rm(state_birds)
+
+```
+
+## Develop Adjacency Matrices for Each Region:
+
+To generate undirected graphs for the states in each region, we develop adjacency matrices for each region. 
+
+```{r adjacency_matrices}
+far_west <- state_df %>%
+    filter(region == "Far West")
+great_lakes <- state_df %>%
+    filter(region == "Great Lakes")
+mideast <- state_df %>%
+    filter(region == "Mideast")
+new_england <- state_df %>%
+    filter(region == "New England")
+plains <- state_df %>%
+    filter(region == "Plains")
+rocky_mountain <- state_df %>%
+    filter(region == "Rocky Mountain")
+southeast <- state_df %>%
+    filter(region == "Southeast")
+southwest <- state_df %>%
+    filter(region == "Southwest")
+
+far_west_adj <- as.matrix(rbind(c(0, 0, 0, 0, 0, 1),
+                                c(0, 0, 1, 1, 1, 0),
+                                c(0, 1, 0, 0, 0, 0),
+                                c(0, 1, 0, 0, 1, 0),
+                                c(0, 1, 0, 1, 0, 1),
+                                c(1, 0, 0, 0, 1, 0)))
+colnames(far_west_adj) <- far_west$abbrev
+rownames(far_west_adj) <- far_west$abbrev
+
+great_lakes_adj <- as.matrix(rbind(c(0, 1, 0, 0, 1),
+                                   c(1, 0, 1, 1, 0),
+                                   c(0, 1, 0, 1, 1),
+                                   c(0, 1, 1, 0, 0),
+                                   c(1, 0, 1, 0, 0)))
+colnames(great_lakes_adj) <- great_lakes$abbrev
+rownames(great_lakes_adj) <- great_lakes$abbrev
+
+mideast_adj <- as.matrix(rbind(c(0, 0, 1, 1, 0, 1),
+                               c(0, 0, 1, 0, 0, 0),
+                               c(1, 1, 0, 0, 0, 1),
+                               c(1, 0, 0, 0, 1, 1),
+                               c(0, 0, 0, 1, 0, 1),
+                               c(1, 0, 1, 1, 1, 0)))
+colnames(mideast_adj) <- mideast$abbrev
+rownames(mideast_adj) <- mideast$abbrev
+
+new_england_adj <- as.matrix(rbind(c(0, 0, 1, 0, 1, 0),
+                                   c(0, 0, 0, 1, 0, 0),
+                                   c(1, 0, 0, 1, 1, 1),
+                                   c(0, 1, 1, 0, 0, 1),
+                                   c(1, 0, 1, 0, 0, 0),
+                                   c(0, 0, 1, 1, 0, 0)))
+colnames(new_england_adj) <- new_england$abbrev
+rownames(new_england_adj) <- new_england$abbrev
+
+plains_adj <- as.matrix(rbind(c(0, 0, 1, 1, 1, 0, 1),
+                              c(0, 0, 0, 1, 1, 0, 0),
+                              c(1, 0, 0, 0, 0, 1, 1),
+                              c(1, 1, 0, 0, 1, 0, 0),
+                              c(1, 1, 0, 1, 0, 0, 1),
+                              c(0, 0, 1, 0, 0, 0, 1),
+                              c(1, 0, 1, 0, 1, 1, 0)))
+colnames(plains_adj) <- plains$abbrev
+rownames(plains_adj) <- plains$abbrev
+
+rocky_mountain_adj <- as.matrix(rbind(c(0, 0, 0, 1, 1),
+                                      c(0, 0, 1, 1, 1),
+                                      c(0, 1, 0, 0, 1),
+                                      c(1, 1, 0, 0, 1),
+                                      c(1, 1, 1, 1, 0)))
+colnames(rocky_mountain_adj) <- rocky_mountain$abbrev
+rownames(rocky_mountain_adj) <- rocky_mountain$abbrev
+
+southeast_adj <- as.matrix(rbind(c(0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0),
+                                 c(0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0),
+                                 c(1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+                                 c(1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0),
+                                 c(0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1),
+                                 c(0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0),
+                                 c(1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0),
+                                 c(0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0),
+                                 c(0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0),
+                                 c(1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0),
+                                 c(0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1),
+                                 c(0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0)))
+colnames(southeast_adj) <- southeast$abbrev
+rownames(southeast_adj) <- southeast$abbrev
+
+southwest_adj <- as.matrix(rbind(c(0, 1, 0, 0),
+                                 c(1, 0, 1, 1),
+                                 c(0, 1, 0, 1),
+                                 c(0, 1, 1, 0)))
+colnames(southwest_adj) <- southwest$abbrev
+rownames(southwest_adj) <- southwest$abbrev
+
+```
+
+## Create and Plot a Graph from Each Region's Adjacency Matrix:
+
+We then create graphs from the adjacency matrices and plot them. 
+
+```{r graphs1}
+far_west_g <- graph_from_adjacency_matrix(far_west_adj, mode = "undirected",
+                                          weighted = TRUE)
+rocky_mountain_g <- graph_from_adjacency_matrix(rocky_mountain_adj,
+                                                mode = "undirected",
+                                                weighted = TRUE)
+plains_g <- graph_from_adjacency_matrix(plains_adj, mode = "undirected",
+                                        weighted = TRUE)
+great_lakes_g <- graph_from_adjacency_matrix(great_lakes_adj,
+                                             mode = "undirected",
+                                             weighted = TRUE)
+par(mfrow = c(2, 2), mar = c(1.5, 0.5, 1.5, 0.5))
+layout <- layout_nicely(far_west_g)
+plot(far_west_g, layout = layout, vertex.color = palette[2],
+     edge.color = palette[2], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Far West")
+layout <- layout_nicely(rocky_mountain_g)
+plot(rocky_mountain_g, layout = layout, vertex.color = palette[4],
+     edge.color = palette[4], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Rocky Mountain")
+layout <- layout_nicely(plains_g)
+plot(plains_g, layout = layout, vertex.color = palette[4],
+     edge.color = palette[4], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Plains")
+layout <- layout_nicely(great_lakes_g)
+plot(great_lakes_g, layout = layout, vertex.color = palette[2],
+     edge.color = palette[2], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Great Lakes")
+
+```
+
+```{r graphs2}
+southwest_g <- graph_from_adjacency_matrix(southwest_adj, mode = "undirected",
+                                           weighted = TRUE)
+southeast_g <- graph_from_adjacency_matrix(southeast_adj, mode = "undirected",
+                                           weighted = TRUE)
+mideast_g <- graph_from_adjacency_matrix(mideast_adj, mode = "undirected",
+                                         weighted = TRUE)
+new_england_g <- graph_from_adjacency_matrix(new_england_adj,
+                                             mode = "undirected",
+                                             weighted = TRUE)
+par(mfrow = c(2, 2), mar = c(1.5, 0.5, 1.5, 0.5))
+layout <- layout_nicely(southwest_g)
+plot(southwest_g, layout = layout, vertex.color = palette[1],
+     edge.color = palette[1], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Southwest")
+layout <- layout_nicely(southeast_g)
+plot(southeast_g, layout = layout, vertex.color = palette[5],
+     edge.color = palette[5], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Southeast")
+layout <- layout_nicely(mideast_g)
+plot(mideast_g, layout = layout, vertex.color = palette[5],
+     edge.color = palette[5], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "Mideast")
+layout <- layout_nicely(new_england_g)
+plot(new_england_g, layout = layout, vertex.color = palette[1],
+     edge.color = palette[1], vertex.label.color = palette[3],
+     vertex.size = 40,
+     main = "New England")
+
+```
+
+## Find the Hamiltonian Paths for Each Region:
+
+Now that every region is a graph of states as vertices and their connections as edges, we can find all the Hamiltonian paths within each graph. Hamiltonian paths visit each vertex of a graph exactly once. To find them, we first find all the simple paths, which are paths that do not include repeating vertices. Then we eliminate any simple path that does not visit all the vertices, leaving us with only Hamiltonian paths. 
+
+```{r find_paths}
+pathing_df <- bird_buddy_df_analysis
+pathing_df$species <- tolower(pathing_df$species)
+pathing_df <- pathing_df %>%
+    left_join(state_df, by = join_by(state)) %>%
+    mutate(p = ifelse(.$species == .$bird, round(p^(1/2), 4), p)) %>%
+    arrange(desc(p))
+remove <- "bird"
+pathing_df <- pathing_df[, !colnames(pathing_df) %in% remove]
+regional_df_list <- list(far_west, great_lakes, mideast, new_england, plains, rocky_mountain, southeast, southwest)
+regional_graph_list <- list(far_west_g, great_lakes_g, mideast_g, new_england_g, plains_g, rocky_mountain_g, southeast_g, southwest_g)
+find_all_hamiltonian_paths <- function(df_list, graph_list){
+    hp_all_list <- vector(mode = "list", length = length(df_list))
+    for (i in 1:length(df_list)){
+        df <- df_list[[i]]
+        g <- graph_list[[i]]
+        hp_all <- as.data.frame(matrix(nrow = 0, ncol = nrow(df)))
+        for (j in 1:nrow(df)){
+            start = df[j, 2]
+            hp_regional <- all_simple_paths(g, from = start)
+            # turn the list of igraph objects into a list of ordinary vectors,
+            # turn those vectors into matrices, transpose them, and convert them
+            # to data frames before using list_rbind; that function only works if
+            # each element of the list is a dataframe or NULL
+            hp_regional <- list_rbind(map(sapply(hp_regional, as_ids),
+                function(x) as.data.frame(t(as.matrix(x)))))
+            # remove paths that don't visit all 12 vertices
+            hp_regional <- hp_regional[rowSums(is.na(hp_regional)) == 0, ]
+            if (ncol(hp_regional) < nrow(df)){
+                # means all vertices cannot be reached from that start without
+                # visiting at least one vertex twice
+                next
+            }else{
+                hp_all <- rbind(hp_all, hp_regional)
+            }
+        }
+        hp_all_list[i] <- list(hp_all)
+    }
+    hp_all_list
+}
+hp_all_list <- find_all_hamiltonian_paths(regional_df_list, regional_graph_list)
+
+```
+
+## Apply Weights to Paths and Find the Shortest Path for Each Region:
+
+We apply weights to each edge of each graph. The weights applied are the inverse probability of seeing the most likely bird to be seen in that state, excepting any already seen birds from previously visited states in the region. By doing that, paths to new birds with higher chances of being seen are considered shorter. There is a bonus (i.e. reduced weight) for seeing a bird in a state where it is the state bird, calculated by taking the square root of the probability before we take the inverse of it. We avoid duplicate bird sightings along each path by removing already seen species from the possible sightings in subsequent states along each path.
+
+We imagine we are always flying to each region, so that we can enter the graph from anywhere. With that in mind, there is essentially an unseen starting vertex connected to every state in each region. Once you account for this unseen starting vertex in each graph, there is always one fewer edge than there are vertices in it, as is proper.
+
+Summing the determined weights for each path reveals the shortest or geodesic path for reach region.
+
+```{r weight_paths_and_find_shortest}
+apply_wts_to_hpaths <- function(hp_all_list){
+    wts_all_list <- vector(mode = "list", length = length(hp_all_list))
+    specs_all_list <- wts_all_list
+    shortest_all_list <- wts_all_list
+    for (i in 1:length(hp_all_list)){
+        hp_regional <- hp_all_list[[i]]
+        wts_df <- as.data.frame(matrix(0, nrow = nrow(hp_regional)),
+                                ncol = ncol(hp_regional))
+        specs_df <- wts_df
+        for (j in 1:nrow(hp_regional)){
+            copy1 <- pathing_df
+            for (k in 1:ncol(hp_regional)){
+                st <- hp_regional[j, k]
+                st_bird <- state_df[state_df$abbrev == st, 4]
+                copy2 <- copy1
+                copy2 <- copy2 %>%
+                    filter(abbrev == st)
+                spec <- copy2[1, 3]
+                p <- copy2[1, 5]
+                wts_df[j, k] <- 1 - p
+                specs_df[j, k] <- spec
+                copy1 <- copy1 %>%
+                    filter(species != spec)
+            }
+        }
+        wts_all_list[i] <- list(wts_df)
+        specs_all_list[i] <- list(specs_df)
+        wts_df <- wts_df %>%
+            mutate(across(everything(), ~replace_na(.x, 1))) %>%
+            mutate(total = rowSums(.[1:ncol(wts_df)]))
+        specs_df <- specs_df %>%
+            mutate(across(everything(), ~replace_na(.x, "None")))
+        shortest <- which(wts_df$total == min(wts_df$total), arr.ind = TRUE)
+        if (length(shortest) > 1){
+            # means there is a tie
+            shortest <- shortest[1]
+        }
+        shortest_df <- rbind(hp_regional[shortest, ], specs_df[shortest, ],
+                             wts_df[shortest, 1:(ncol(wts_df) - 1)])
+        shortest_df[3, ] <- 1 - as.numeric(shortest_df[3, ])
+        shortest_df <- as.data.frame(t(shortest_df))
+        rownames(shortest_df) <- NULL
+        cols <- c("abbrev", "sighting", "p")
+        colnames(shortest_df) <- cols
+        shortest_df <- shortest_df %>%
+            left_join(state_df, by = join_by(abbrev)) %>%
+            mutate(saw_state_bird = ifelse(.$sighting == .$bird, "Yes", "No"))
+        remove <- "bird"
+        shortest_df <- shortest_df[, !colnames(shortest_df) %in% remove]
+        shortest_all_list[i] <- list(shortest_df)
+    }
+    wts_specs_shortest_list <- list(wts_all_list, specs_all_list, shortest_all_list)
+    wts_specs_shortest_list
+}
+wts_specs_shortest_list <- apply_wts_to_hpaths(hp_all_list)
+
+```
+
+## Results:
+
+We have found the best bird-watching paths for all regions:
+
+```{r display_results1}
+shortest_unpacked <- wts_specs_shortest_list[[3]]
+for (i in 1:length(shortest_unpacked)){
+    df <- shortest_unpacked[[i]]
+    shortest_unpacked[[i]] <- cbind(order = rownames(df), df)
+}
+shortest_unpacked_df <- list_rbind(shortest_unpacked)
+kable(shortest_unpacked_df[, -4], format = "simple")
+
+```
+
+### Highlight the Southeast Region:
+
+From our results, we will highlight the Southeast region, whose geodisic path results in seeing the most birds in the states where they are the state birds.
+
+```{r display_results2}
+southeast_shortest <- shortest_unpacked[[7]]
+southeast_shortest$p <- as.numeric(southeast_shortest$p)
+kable(southeast_shortest[, -4], format = "simple")
+
+```
+
+### Walk the Southeast's Hamiltonian Path as an Absorbing Markov Chain:
+
+To see how long our pretend bird-watching journey through the Southeast might take, we set up a transition matrix for moving along the Markov chain that represents our path. The last state in the path is the absorbing state, and we start from the unseen vertex outside the region that we mentioned earlier.
+
+```{r markov_chain1}
+P <- matrix(0, nrow = (nrow(southeast_shortest) + 1),
+            ncol = (nrow(southeast_shortest) + 1))
+rownames(P) <- c("XX", southeast_shortest$abbrev)
+colnames(P) <- c("XX", southeast_shortest$abbrev)
+diag(P) <- c(1 - southeast_shortest$p, 1)
+j <- 2
+for (i in 1:length(southeast_shortest$p)){
+    P[i, j] <- southeast_shortest[i, "p"]
+    j <- j + 1
+}
+to_LaTeX <- function(A){
+    rows <- apply(A, MARGIN=1, paste, collapse = " & ")
+    matrix_string <- paste(rows, collapse = " \\\\ ")
+    return(paste("\\begin{bmatrix}", matrix_string, "\\end{bmatrix}"))
+}
+mc_P <- new("markovchain", states = rownames(P), byrow = TRUE,
+            transitionMatrix = P, name = "Southeast")
+mc_P_g <- as(mc_P, "igraph")
+plot(simplify(mc_P_g), layout = layout.circle, vertex.color = palette[5],
+     edge.color = palette[5], vertex.label.color = palette[3],
+     vertex.size = 30, edge.arrow.size = 0.5,
+     main = "Southeast")
+
+```
+
+The transition probabilities in our transition matrix are the edge weights, and we will treat the mean steps required for absorption time as days.
+
+```{r markov_chain2}
+P_rounded <- round(P, 2)
+P_print <- to_LaTeX(P_rounded)
+
+```
+
+$P = `r P_print`$
+
+```{r markov_chain3}
+steps <- as.data.frame(meanAbsorptionTime(mc_P))
+cols <- "steps"
+colnames(steps) <- cols
+steps <- round(steps, 2)
+steps <- as.data.frame(t(steps))
+kable(steps, format = "simple")
+
+```
+
+Starting from outside the region, it would take around 160 days to walk our path from Kentucky to West Virginia and see the birds we want to see.
+
+## Conclusions:
+
+Having identified the best bird-watching paths for all regions according to our priorities, there is still a lot of room for improvement. We could reconfigure the priorities so that if you have a better chance of seeing a new bird by staying in the state you're in than by moving to a new state, you don't move. This reconfiguration would probably require allowing paths that do not visit all states in the region, and/or allowing paths that revisit states.
